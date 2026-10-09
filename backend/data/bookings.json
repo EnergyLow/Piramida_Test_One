@@ -1,0 +1,165 @@
+[
+  {
+    "id": "48d4d6cc-c1c7-4ab2-9e3c-9bf5d259863f",
+    "number": 1,
+    "name": "Владислав",
+    "phone": "+79591673225",
+    "date": "2026-10-30",
+    "time": "17:00",
+    "guests": "2",
+    "comment": "dfgdfgfgdfgdf",
+    "status": "confirmed",
+    "statusLabel": "Подтверждена",
+    "createdAt": "2026-10-09T15:31:34.807Z",
+    "telegramMessageId": 20,
+    "telegramChatId": "8263520497",
+    "telegramMessages": [
+      {
+        "chatId": "8263520497",
+        "messageId": 20
+      },
+      {
+        "chatId": "1914823412",
+        "messageId": 21
+      }
+    ],
+    "notificationError": null,
+    "notifiedAt": "2026-10-09T15:31:35.965Z",
+    "notificationFailures": [],
+    "updatedAt": "2026-10-09T15:31:40.081Z"
+  },
+  {
+    "id": "ad9244a9-5124-4c65-8fa3-a0c27e612fea",
+    "number": 2,
+    "name": "Владислав",
+    "phone": "+79591673225",
+    "date": "2026-10-18",
+    "time": "19:00",
+    "guests": "2",
+    "comment": "ываываываыв",
+    "status": "confirmed",
+    "statusLabel": "Подтверждена",
+    "createdAt": "2026-10-09T17:50:26.775Z",
+    "telegramMessageId": 22,
+    "telegramChatId": "8263520497",
+    "telegramMessages": [
+      {
+        "chatId": "8263520497",
+        "messageId": 22
+      },
+      {
+        "chatId": "1914823412",
+        "messageId": 23
+      }
+    ],
+    "notificationError": null,
+    "notifiedAt": "2026-10-09T17:50:29.392Z",
+    "notificationFailures": [],
+    "updatedAt": "2026-10-09T17:50:29.916Z"
+  },
+  {
+    "id": "20e835be-3119-4e28-b0c2-68dd8a8a9c7e",
+    "number": 3,
+    "name": "Максим Александрович",
+    "phone": "+79591673225",
+    "date": "2026-10-10",
+    "time": "18:00",
+    "guests": "7+",
+    "comment": "sdfsdfsdsdfsdfsdsdfsdfsdsdfsdfsdsdfsdfsdsdfsdfsdsdfsdfsdsdfsdfsdsdfsdfsdsdfsdfsdsdfsdfsdsdfsdfsdsdfsdfsdsdfsdfsdsdfsdfsd",
+    "status": "notification_failed",
+    "statusLabel": "Ошибка отправки уведомления",
+    "createdAt": "2026-10-09T19:13:22.524Z",
+    "telegramMessageId": null,
+    "telegramChatId": "8263520497",
+    "telegramMessages": [],
+    "notificationError": "8263520497: Telegram API недоступен; 1914823412: Telegram API недоступен"
+  },
+  {
+    "id": "57387d61-e2f4-4549-a1bc-d05c7de6fb70",
+    "number": 4,
+    "name": "Максим Александрович",
+    "phone": "+79591673225",
+    "date": "2026-10-10",
+    "time": "16:00",
+    "guests": "1",
+    "comment": "asdasddsa",
+    "status": "rejected",
+    "statusLabel": "Отклонена",
+    "createdAt": "2026-10-09T19:22:25.770Z",
+    "telegramMessageId": 24,
+    "telegramChatId": "8263520497",
+    "telegramMessages": [
+      {
+        "chatId": "8263520497",
+        "messageId": 24
+      }
+    ],
+    "notificationError": "Не всем администраторам удалось доставить уведомление. Проверьте, что каждый администратор нажал Start у бота и указал правильный числовой ID.",
+    "notifiedAt": "2026-10-09T19:22:41.638Z",
+    "notificationFailures": [
+      {
+        "chatId": "1914823412",
+        "reason": "Telegram API недоступен"
+      }
+    ],
+    "updatedAt": "2026-10-09T19:22:50.145Z"
+  },
+  {
+    "id": "6e526575-a765-4abf-8b92-c56b446997cd",
+    "number": 5,
+    "name": "Максим Александрович",
+    "phone": "+79591673225",
+    "date": "2026-10-18",
+    "time": "20:00",
+    "guests": "3",
+    "comment": "фывыфвыфвфывфывфы",
+    "status": "rejected",
+    "statusLabel": "Отклонена",
+    "createdAt": "2026-10-09T19:23:39.999Z",
+    "telegramMessageId": 26,
+    "telegramChatId": "8263520497",
+    "telegramMessages": [
+      {
+        "chatId": "8263520497",
+        "messageId": 26
+      },
+      {
+        "chatId": "1914823412",
+        "messageId": 27
+      }
+    ],
+    "notificationError": null,
+    "notifiedAt": "2026-10-09T19:23:40.943Z",
+    "notificationFailures": [],
+    "updatedAt": "2026-10-09T19:24:30.360Z"
+  },
+  {
+    "id": "770f8acf-0baf-4660-9c00-52b4b519df2d",
+    "number": 6,
+    "name": "Максим Александрович",
+    "phone": "+79591673225",
+    "date": "2026-10-15",
+    "time": "19:00",
+    "guests": "4",
+    "comment": "чвмачмчсмсчмсчмчмсч",
+    "status": "confirmed",
+    "statusLabel": "Подтверждена",
+    "createdAt": "2026-10-09T20:04:58.770Z",
+    "telegramMessageId": 29,
+    "telegramChatId": "8263520497",
+    "telegramMessages": [
+      {
+        "chatId": "8263520497",
+        "messageId": 29
+      },
+      {
+        "chatId": "1914823412",
+        "messageId": 30
+      }
+    ],
+    "notificationError": null,
+    "notifiedAt": "2026-10-09T20:04:59.684Z",
+    "notificationFailures": [],
+    "updatedAt": "2026-10-09T20:05:10.552Z"
+  }
+]
