@@ -1,6 +1,6 @@
 
 const CONFIG = window.PIRAMIDA_CONFIG || {};
-const DEFAULT_ENDPOINT = "http://localhost:3000/api/bookings";
+const DEFAULT_ENDPOINT = "https://piramida-test-one.onrender.com/api/bookings";
 
 export function initBooking() {
   const form = document.querySelector("#booking-form");
