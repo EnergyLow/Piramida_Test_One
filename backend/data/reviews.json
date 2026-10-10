@@ -12,5 +12,12 @@
     "text": "Крутое место что бы подымить и развеется ;)",
     "rating": 4,
     "createdAt": "2026-10-09T17:13:49.111Z"
+  },
+  {
+    "id": "81a62be8-35cf-414c-b705-113c4ce932f9",
+    "name": "Test",
+    "text": "TestTestTestTestTest",
+    "rating": 5,
+    "createdAt": "2026-10-09T21:47:48.267Z"
   }
 ]

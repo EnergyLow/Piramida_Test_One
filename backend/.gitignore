@@ -1,0 +1,13 @@
+# Секреты и настройки
+.env
+.env.*
+!.env.example
+
+# Зависимости и локальные файлы
+node_modules/
+backend/node_modules/
+
+# Локальные бронирования и логи
+*.log
+bookings.json
+backend/bookings.json

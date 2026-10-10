@@ -1,21 +1,30 @@
-
 import 'dotenv/config';
-
 import express from 'express';
 import helmet from 'helmet';
+import { createClient } from '@supabase/supabase-js';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
 const DATA_DIR = path.join(__dirname, 'data');
 const BOOKINGS_FILE = path.join(DATA_DIR, 'bookings.json');
 const REVIEWS_FILE = path.join(DATA_DIR, 'reviews.json');
 
 const PORT = Number.parseInt(process.env.PORT || '3000', 10);
 const BOT_TOKEN = (process.env.BOT_TOKEN || '').trim();
+
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
+
+if (!supabaseUrl || !supabaseSecretKey) {
+  throw new Error(
+    'Не заданы SUPABASE_URL и SUPABASE_SECRET_KEY в .env'
+  );
+}
+
+const supabase = createClient(supabaseUrl, supabaseSecretKey);
 
 const ADMIN_CHAT_IDS = [
   ...new Set(
@@ -62,9 +71,15 @@ let updateOffset = 0;
 
 const rateBuckets = new Map();
 const reviewRateBuckets = new Map();
+const reviewCooldowns = new Map();
 
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const MAX_REVIEW_REQUESTS = 5;
+const REVIEW_COOLDOWN_MS = 15 * 60 * 1000;
+
+// --------------------------------------------------
+// Общие функции
+// --------------------------------------------------
 
 function safeEqual(a, b) {
   return (
@@ -141,10 +156,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// -----------------------------------------------------------------------------
-// Общие функции
-// -----------------------------------------------------------------------------
-
 function serialWrite(operation) {
   const next = writeQueue.then(operation, operation);
   writeQueue = next.catch(() => {});
@@ -198,9 +209,9 @@ function escapeHtml(value) {
     .replaceAll('"', '&quot;');
 }
 
-// -----------------------------------------------------------------------------
-// Бронирования — существующая логика
-// -----------------------------------------------------------------------------
+// --------------------------------------------------
+// Бронирования: локальный файл
+// --------------------------------------------------
 
 function validDate(date) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
@@ -292,6 +303,10 @@ async function mutateBookings(mutator) {
   });
 }
 
+// --------------------------------------------------
+// Telegram API
+// --------------------------------------------------
+
 async function telegramApi(method, payload, timeoutMs = 15000) {
   if (!BOT_TOKEN) {
     throw new Error('Telegram не настроен.');
@@ -365,6 +380,10 @@ function bookingKeyboard(booking) {
   };
 }
 
+// --------------------------------------------------
+// Проверка работы сервера
+// --------------------------------------------------
+
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
@@ -372,6 +391,11 @@ app.get('/api/health', (_req, res) => {
     telegramConfigured: Boolean(BOT_TOKEN && ADMIN_CHAT_IDS.length),
   });
 });
+
+// --------------------------------------------------
+// Создание бронирования
+// Сохраняем в Supabase и отправляем в Telegram
+// --------------------------------------------------
 
 app.post('/api/bookings', async (req, res) => {
   if (!BOT_TOKEN || !ADMIN_CHAT_IDS.length) {
@@ -392,6 +416,7 @@ app.post('/api/bookings', async (req, res) => {
   }
 
   try {
+    // Сначала сохраняем заявку в локальный файл.
     const booking = await mutateBookings(async (bookings) => {
       const number =
         bookings.reduce(
@@ -416,6 +441,33 @@ app.post('/api/bookings', async (req, res) => {
       return item;
     });
 
+    // Затем сохраняем заявку в Supabase.
+    const { error: supabaseError } = await supabase
+      .from('bookings')
+      .insert({
+        name: booking.name,
+        phone: booking.phone,
+        booking_date: booking.date,
+        booking_time: booking.time,
+        guests: booking.guests,
+        comment: booking.comment,
+        status: booking.status,
+      });
+
+    if (supabaseError) {
+      console.error(
+        'Ошибка сохранения заявки в Supabase:',
+        supabaseError.message
+      );
+
+      return res.status(500).json({
+        ok: false,
+        error:
+          'Не удалось сохранить заявку. Пожалуйста, попробуйте позже или позвоните в заведение.',
+      });
+    }
+
+    // Отправляем уведомление каждому администратору.
     const sentMessages = [];
     const notificationFailures = [];
 
@@ -434,7 +486,9 @@ app.post('/api/bookings', async (req, res) => {
         });
       } catch (error) {
         const reason =
-          error.telegramDescription || 'Telegram API недоступен';
+          error.telegramDescription ||
+          error.message ||
+          'Неизвестная ошибка Telegram';
 
         notificationFailures.push({ chatId, reason });
 
@@ -444,7 +498,7 @@ app.post('/api/bookings', async (req, res) => {
       }
     }
 
-    if (sentMessages.length) {
+    if (sentMessages.length > 0) {
       await mutateBookings(async (bookings) => {
         const item = bookings.find((entry) => entry.id === booking.id);
 
@@ -456,7 +510,7 @@ app.post('/api/bookings', async (req, res) => {
           item.notificationFailures = notificationFailures;
 
           item.notificationError = notificationFailures.length
-            ? 'Не всем администраторам удалось доставить уведомление. Проверьте, что каждый администратор нажал Start у бота и указал правильный числовой ID.'
+            ? 'Не всем администраторам удалось доставить уведомление. Проверьте Telegram ID и доступ к боту.'
             : null;
         }
       });
@@ -475,6 +529,23 @@ app.post('/api/bookings', async (req, res) => {
         }
       }).catch(() => {});
 
+      // Обновляем статус заявки и в Supabase.
+      const { error: statusError } = await supabase
+        .from('bookings')
+        .update({ status: 'notification_failed' })
+        .eq('name', booking.name)
+        .eq('phone', booking.phone)
+        .eq('booking_date', booking.date)
+        .eq('booking_time', booking.time)
+        .eq('status', 'pending');
+
+      if (statusError) {
+        console.error(
+          'Не удалось обновить статус заявки в Supabase:',
+          statusError.message
+        );
+      }
+
       return res.status(502).json({
         ok: false,
         error:
@@ -489,7 +560,10 @@ app.post('/api/bookings', async (req, res) => {
         'Заявка отправлена! Администратор свяжется с вами для подтверждения бронирования. Это ещё не подтверждение столика.',
     });
   } catch (error) {
-    console.error('Не удалось сохранить заявку на бронирование:', error);
+    console.error(
+      'Не удалось сохранить заявку на бронирование:',
+      error.message || error
+    );
 
     return res.status(500).json({
       ok: false,
@@ -499,9 +573,9 @@ app.post('/api/bookings', async (req, res) => {
   }
 });
 
-// -----------------------------------------------------------------------------
-// Отзывы — новый функционал
-// -----------------------------------------------------------------------------
+// --------------------------------------------------
+// Отзывы: локальный JSON-файл
+// --------------------------------------------------
 
 async function readReviews() {
   return readJsonArray(REVIEWS_FILE);
@@ -525,7 +599,7 @@ function validateReview(body) {
     return { error: 'Проверьте данные формы.' };
   }
 
-  // Поле-ловушка: обычный пользователь оставляет его пустым.
+  // Поле-ловушка должно оставаться пустым.
   if (cleanText(body.website, 200)) {
     return { error: 'Не удалось отправить отзыв.' };
   }
@@ -547,9 +621,7 @@ function validateReview(body) {
   }
 
   if (body.consent !== true) {
-    return {
-      error: 'Подтвердите согласие на публикацию отзыва.',
-    };
+    return { error: 'Подтвердите согласие на публикацию отзыва.' };
   }
 
   return {
@@ -579,7 +651,7 @@ app.get('/api/reviews', async (_req, res) => {
       average: Number(average.toFixed(2)),
     });
   } catch (error) {
-    console.error('Не удалось загрузить отзывы:', error);
+    console.error('Не удалось загрузить отзывы:', error.message || error);
 
     return res.status(500).json({
       ok: false,
@@ -588,12 +660,8 @@ app.get('/api/reviews', async (_req, res) => {
   }
 });
 
-
-const reviewCooldowns = new Map();
-const REVIEW_COOLDOWN_MS = 15 * 60 * 1000;
-
 function reviewRateLimit(req, res, next) {
-  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
   const lastReviewAt = reviewCooldowns.get(ip);
 
@@ -605,15 +673,13 @@ function reviewRateLimit(req, res, next) {
     return res.status(429).json({
       ok: false,
       error: `Следующий отзыв можно отправить через ${Math.ceil(retryAfterSeconds / 60)} мин.`,
-      retryAfterSeconds
+      retryAfterSeconds,
     });
   }
 
-  // Временно резервируем время, чтобы ограничить повторные запросы.
   reviewCooldowns.set(ip, now);
 
-  res.on("finish", () => {
-    // Если отправка не удалась, разрешаем попробовать снова.
+  res.on('finish', () => {
     if (res.statusCode >= 400 && reviewCooldowns.get(ip) === now) {
       reviewCooldowns.delete(ip);
     }
@@ -646,8 +712,7 @@ app.post('/api/reviews', reviewRateLimit, async (req, res) => {
   if (bucket.count > MAX_REVIEW_REQUESTS) {
     return res.status(429).json({
       ok: false,
-      error:
-        'Слишком много отзывов за короткое время. Попробуйте позже.',
+      error: 'Слишком много отзывов за короткое время. Попробуйте позже.',
     });
   }
 
@@ -678,7 +743,7 @@ app.post('/api/reviews', reviewRateLimit, async (req, res) => {
       message: 'Спасибо! Ваш отзыв опубликован.',
     });
   } catch (error) {
-    console.error('Не удалось сохранить отзыв:', error);
+    console.error('Не удалось сохранить отзыв:', error.message || error);
 
     return res.status(500).json({
       ok: false,
@@ -687,9 +752,9 @@ app.post('/api/reviews', reviewRateLimit, async (req, res) => {
   }
 });
 
-// -----------------------------------------------------------------------------
-// Telegram: подтверждение и отклонение бронирований
-// -----------------------------------------------------------------------------
+// --------------------------------------------------
+// Telegram: кнопки подтверждения и отклонения
+// --------------------------------------------------
 
 async function handleCallback(callback) {
   const callbackId = callback.id;
@@ -703,6 +768,7 @@ async function handleCallback(callback) {
       text: 'Это действие доступно только администратору.',
       show_alert: true,
     });
+
     return;
   }
 
@@ -713,6 +779,7 @@ async function handleCallback(callback) {
       callback_query_id: callbackId,
       text: 'Некорректное действие.',
     });
+
     return;
   }
 
@@ -741,6 +808,7 @@ async function handleCallback(callback) {
       text: 'Заявка не найдена.',
       show_alert: true,
     });
+
     return;
   }
 
@@ -750,12 +818,32 @@ async function handleCallback(callback) {
       text: `Заявка уже обработана: ${statusLabel(outcome.booking.status)}`,
       show_alert: true,
     });
+
     return;
   }
 
-  try {
-    const booking = outcome.booking;
+  const booking = outcome.booking;
 
+  // Синхронизируем статус с Supabase.
+  // Важно: без отдельного ID строки Supabase используем поля заявки.
+  // Если в таблице есть дубли с одинаковыми данными, обновиться могут несколько строк.
+  const { error: supabaseError } = await supabase
+    .from('bookings')
+    .update({ status: booking.status })
+    .eq('name', booking.name)
+    .eq('phone', booking.phone)
+    .eq('booking_date', booking.date)
+    .eq('booking_time', booking.time)
+    .eq('status', 'pending');
+
+  if (supabaseError) {
+    console.error(
+      'Не удалось обновить статус в Supabase:',
+      supabaseError.message
+    );
+  }
+
+  try {
     const messages =
       Array.isArray(booking.telegramMessages) &&
       booking.telegramMessages.length
@@ -781,7 +869,9 @@ async function handleCallback(callback) {
       } catch (error) {
         console.error(
           `Не удалось обновить копию заявки #${booking.number}: ${
-            error.telegramDescription || 'ошибка Telegram API'
+            error.telegramDescription ||
+            error.message ||
+            'ошибка Telegram API'
           }`
         );
       }
@@ -794,7 +884,7 @@ async function handleCallback(callback) {
           ? 'Заявка подтверждена.'
           : 'Заявка отклонена.',
     });
-  } catch {
+  } catch (error) {
     try {
       await telegramApi('answerCallbackQuery', {
         callback_query_id: callbackId,
@@ -805,14 +895,15 @@ async function handleCallback(callback) {
     } catch {}
 
     console.error(
-      'Статус заявки сохранён, но Telegram не смог обновить сообщение.'
+      'Не удалось обновить сообщение Telegram:',
+      error.message || error
     );
   }
 }
 
-// -----------------------------------------------------------------------------
-// Ошибки API и запуск
-// -----------------------------------------------------------------------------
+// --------------------------------------------------
+// Обработка ошибок
+// --------------------------------------------------
 
 app.use((error, _req, res, _next) => {
   if (error?.type === 'entity.too.large') {
@@ -832,7 +923,7 @@ app.use((error, _req, res, _next) => {
     });
   }
 
-  console.error('Необработанная ошибка API запроса.');
+  console.error('Необработанная ошибка API:', error.message || error);
 
   return res.status(500).json({
     ok: false,
@@ -840,11 +931,16 @@ app.use((error, _req, res, _next) => {
   });
 });
 
+// --------------------------------------------------
+// Запуск Telegram long polling
+// --------------------------------------------------
+
 async function startTelegramPolling() {
   if (!BOT_TOKEN || !ADMIN_CHAT_IDS.length) {
     console.warn(
-      'Telegram не настроен: заполните BOT_TOKEN и ADMIN_CHAT_IDS в backend/.env. API бронирования пока отключён.'
+      'Telegram не настроен: заполните BOT_TOKEN и ADMIN_CHAT_IDS в backend/.env.'
     );
+
     return;
   }
 
@@ -863,7 +959,7 @@ async function startTelegramPolling() {
 
     if (webhook?.url) {
       throw new Error(
-        'У бота уже настроен webhook. Сервер не удалял его. Отключите webhook осознанно перед запуском long polling.'
+        'У бота уже настроен webhook. Отключите его перед запуском long polling.'
       );
     }
 
@@ -876,17 +972,21 @@ async function startTelegramPolling() {
     if (error.message.includes('webhook')) throw error;
 
     console.error(
-      'Не удалось проверить Telegram API. Проверьте BOT_TOKEN, сеть и доступ бота.'
+      'Не удалось проверить Telegram API:',
+      error.telegramDescription || error.message || error
     );
+
     return;
   }
 
   polling = true;
 
-  pollLoop().catch(() => {
+  pollLoop().catch((error) => {
     polling = false;
+
     console.error(
-      'Long polling остановлен. Проверьте соединение и перезапустите сервер.'
+      'Long polling остановлен:',
+      error.message || error
     );
   });
 }
@@ -910,9 +1010,10 @@ async function pollLoop() {
         if (update.callback_query) {
           try {
             await handleCallback(update.callback_query);
-          } catch {
+          } catch (error) {
             console.error(
-              'Не удалось обработать действие Telegram. Проверьте соединение и заявку.'
+              'Не удалось обработать действие Telegram:',
+              error.message || error
             );
           }
         }
@@ -922,18 +1023,28 @@ async function pollLoop() {
         console.error(
           'Конфликт getUpdates: возможно, уже запущен другой экземпляр бота.'
         );
+
         polling = false;
         return;
       }
+
+      console.error(
+        'Ошибка получения обновлений Telegram:',
+        error.telegramDescription || error.message || error
+      );
 
       await new Promise((resolve) => setTimeout(resolve, 3000));
     }
   }
 }
 
+// --------------------------------------------------
+// Запуск сервера и корректное завершение
+// --------------------------------------------------
+
 await mkdir(DATA_DIR, { recursive: true });
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Piramida booking API слушает http://localhost:${PORT}`);
 
   startTelegramPolling().catch((error) => {

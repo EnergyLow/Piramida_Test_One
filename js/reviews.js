@@ -1,5 +1,5 @@
-const API_URL = window.PIRAMIDA_CONFIG?.reviewsEndpoint
-  || "http://localhost:3000/api/reviews";
+
+import { supabase } from "./supabase.js";
 
 const list = document.querySelector("#reviews-list");
 const form = document.querySelector("#review-form");
@@ -23,7 +23,6 @@ function makeElement(tag, className, text) {
 
 function formatDate(value) {
   if (!value) return "";
-
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
 
@@ -34,22 +33,21 @@ function formatDate(value) {
   }).format(date);
 }
 
-function renderReviews(data) {
-  const reviews = Array.isArray(data.reviews) ? data.reviews : [];
-  const count = Number(data.count ?? reviews.length);
-  const average = Number(data.average ?? 0);
+function renderReviews(reviews) {
+  const count = reviews.length;
+  const average = count
+    ? reviews.reduce((sum, review) => sum + Number(review.rating), 0) / count
+    : 0;
 
   averageElement.textContent = count ? average.toFixed(1) : "—";
-
-  const roundedAverage = Math.max(0, Math.min(5, Math.round(average)));
+  const rounded = Math.round(average);
 
   averageStars.textContent = count
-    ? "★".repeat(roundedAverage) + "☆".repeat(5 - roundedAverage)
+    ? "★".repeat(rounded) + "☆".repeat(5 - rounded)
     : "☆☆☆☆☆";
 
   const lastDigit = count % 10;
   const lastTwoDigits = count % 100;
-
   let word = "отзывов";
 
   if (lastDigit === 1 && lastTwoDigits !== 11) {
@@ -64,14 +62,12 @@ function renderReviews(data) {
   countElement.textContent = `${count} ${word}`;
   list.replaceChildren();
 
-  if (!reviews.length) {
-    list.append(
-      makeElement(
-        "p",
-        "reviews-empty",
-        "Пока отзывов нет. Будьте первым, кто поделится впечатлениями!"
-      )
-    );
+  if (!count) {
+    list.append(makeElement(
+      "p",
+      "reviews-empty",
+      "Пока отзывов нет. Будьте первым, кто поделится впечатлениями!"
+    ));
     return;
   }
 
@@ -85,11 +81,7 @@ function renderReviews(data) {
       String(review.name || "Гость")
     );
 
-    const rating = Math.max(
-      1,
-      Math.min(5, Number(review.rating) || 1)
-    );
-
+    const rating = Math.max(1, Math.min(5, Number(review.rating) || 1));
     const stars = makeElement(
       "span",
       "review-stars",
@@ -97,22 +89,22 @@ function renderReviews(data) {
     );
 
     stars.setAttribute("aria-label", `Оценка: ${rating} из 5`);
-
     header.append(author, stars);
     card.append(header);
 
-    const dateText = formatDate(review.createdAt || review.date);
+    const dateText = formatDate(review.created_at);
 
     if (dateText) {
       const time = makeElement("time", "review-date", dateText);
-      time.dateTime = review.createdAt || review.date;
+      time.dateTime = review.created_at;
       card.append(time);
     }
 
-    // textContent защищает от интерпретации текста отзыва как HTML.
-    card.append(
-      makeElement("p", "review-text", String(review.text || ""))
-    );
+    card.append(makeElement(
+      "p",
+      "review-text",
+      String(review.review_text || "")
+    ));
 
     list.append(card);
   }
@@ -120,91 +112,84 @@ function renderReviews(data) {
 
 async function loadReviews() {
   try {
-    const response = await fetch(API_URL);
-    const data = await response.json();
+    const { data, error } = await supabase
+      .from("reviews")
+      .select("id, name, rating, review_text, created_at")
+      .order("created_at", { ascending: false });
 
-    if (!response.ok || !data.ok) {
-      throw new Error(data.error || "Не удалось загрузить отзывы.");
-    }
-
-    renderReviews(data);
+    if (error) throw error;
+    renderReviews(data || []);
   } catch (error) {
-    list.replaceChildren(
-      makeElement(
-        "p",
-        "reviews-error",
-        "Не удалось загрузить отзывы. Проверьте подключение и попробуйте обновить страницу."
-      )
-    );
+    console.error("Ошибка загрузки отзывов:", error);
+
+    list.replaceChildren(makeElement(
+      "p",
+      "reviews-error",
+      "Не удалось загрузить отзывы. Попробуйте обновить страницу."
+    ));
 
     countElement.textContent = "Отзывы временно недоступны";
-
-    console.error("Ошибка загрузки отзывов:", error);
   }
 }
 
 async function handleReviewSubmit(event) {
   event.preventDefault();
-
   if (!form.reportValidity()) return;
 
   const submitButton = form.querySelector('button[type="submit"]');
-
   if (!submitButton) return;
 
   const fields = new FormData(form);
+  const name = String(fields.get("name") || "").trim();
+  const rating = Number(fields.get("rating"));
+  const text = String(fields.get("text") || "").trim();
+  const website = String(fields.get("website") || "").trim();
+  const consent = fields.get("consent") === "on";
 
-  const payload = {
-    name: String(fields.get("name") || "").trim(),
-    rating: Number(fields.get("rating")),
-    text: String(fields.get("text") || "").trim(),
-    website: String(fields.get("website") || ""),
-    consent: fields.get("consent") === "on"
-  };
+  if (website) {
+    form.reset();
+    showMessage("Спасибо за отзыв!", "success");
+    return;
+  }
+
+  if (!consent) {
+    showMessage("Необходимо согласие на обработку персональных данных.", "error");
+    return;
+  }
 
   if (
-    payload.name.length < 2 ||
-    payload.text.length < 10 ||
-    !Number.isInteger(payload.rating) ||
-    payload.rating < 1 ||
-    payload.rating > 5
+    name.length < 2 ||
+    text.length < 10 ||
+    text.length > 2000 ||
+    !Number.isInteger(rating) ||
+    rating < 1 ||
+    rating > 5
   ) {
     showMessage("Проверьте имя, текст отзыва и оценку.", "error");
     return;
   }
 
+  const originalText = submitButton.textContent;
   submitButton.disabled = true;
-  showMessage("Отправляем отзыв…");
+  submitButton.textContent = "Отправляем…";
+  showMessage("Сохраняем отзыв…");
 
   try {
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
+    const { error } = await supabase
+      .from("reviews")
+      .insert({ name, rating, review_text: text });
 
-    const data = await response.json();
-
-    if (!response.ok || !data.ok) {
-      throw new Error(data.error || "Не удалось отправить отзыв.");
-    }
+    if (error) throw error;
 
     form.reset();
-
-    showMessage("Спасибо! Ваш отзыв отправлен.", "success");
-
+    showMessage("Спасибо! Ваш отзыв опубликован.", "success");
     await loadReviews();
   } catch (error) {
-    showMessage(
-      error.message || "Ошибка отправки. Попробуйте ещё раз.",
-      "error"
-    );
-
     console.error("Ошибка отправки отзыва:", error);
+    showMessage("Не удалось отправить отзыв. Попробуйте ещё раз.", "error");
   } finally {
     submitButton.disabled = false;
+    submitButton.textContent = originalText;
   }
 }
 
@@ -217,13 +202,10 @@ export function initReviews() {
     !averageStars ||
     !countElement
   ) {
-    console.error(
-      "Отзывы: не найдены необходимые элементы в HTML. Проверьте ID блока отзывов."
-    );
+    console.error("Отзывы: не найдены необходимые элементы HTML.");
     return;
   }
 
   form.addEventListener("submit", handleReviewSubmit);
-
   loadReviews();
 }
