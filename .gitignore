@@ -19,3 +19,6 @@ backend/.env.*
 !backend/.env.example
 backend/data/bookings.json
 backend/data/bookings.json.tmp
+
+# Supabase CLI local cache
+supabase/.temp/
