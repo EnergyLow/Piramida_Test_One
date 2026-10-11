@@ -1,5 +1,7 @@
-
+// js/reviews.js
 import { supabase } from "./supabase.js";
+
+const SUBMIT_REVIEW_URL = "https://btyejqlyvoajcdufpesf.supabase.co/functions/v1/submit-review";
 
 const list = document.querySelector("#reviews-list");
 const form = document.querySelector("#review-form");
@@ -175,18 +177,29 @@ async function handleReviewSubmit(event) {
   showMessage("Сохраняем отзыв…");
 
   try {
-    const { error } = await supabase
-      .from("reviews")
-      .insert({ name, rating, review_text: text });
+    const response = await fetch(SUBMIT_REVIEW_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        rating,
+        text,
+        honeypot: website
+      })
+    });
 
-    if (error) throw error;
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok || !result.ok) {
+      throw new Error(result.error || "Не удалось отправить отзыв.");
+    }
 
     form.reset();
-    showMessage("Спасибо! Ваш отзыв опубликован.", "success");
+    showMessage(result.message || "Спасибо! Ваш отзыв опубликован.", "success");
     await loadReviews();
   } catch (error) {
     console.error("Ошибка отправки отзыва:", error);
-    showMessage("Не удалось отправить отзыв. Попробуйте ещё раз.", "error");
+    showMessage(error.message || "Не удалось отправить отзыв. Попробуйте ещё раз.", "error");
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = originalText;

@@ -1,6 +1,6 @@
 
 const CONFIG = window.PIRAMIDA_CONFIG || {};
-const DEFAULT_ENDPOINT = "https://piramida-test-one.onrender.com/api/bookings";
+const DEFAULT_ENDPOINT = "https://btyejqlyvoajcdufpesf.supabase.co/functions/v1/submit-booking";
 
 export function initBooking() {
   const form = document.querySelector("#booking-form");
